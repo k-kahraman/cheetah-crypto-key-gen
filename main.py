@@ -19,13 +19,32 @@ class CheetahKeyGenerator:
                                          max_value, cv2.THRESH_BINARY_INV)
         return binary_thresh
 
-    def find_and_filter_contours(self, binary_thresh, min_contour_area):
+    def find_and_filter_contours(self, binary_thresh, min_contour_area,
+                                 max_contour_area):
         contours, _ = cv2.findContours(binary_thresh, cv2.RETR_LIST,
                                        cv2.CHAIN_APPROX_SIMPLE)
         return [
             contour for contour in contours
             if cv2.contourArea(contour) > min_contour_area
+            and cv2.contourArea(contour) <= max_contour_area
         ]
+
+    def apply_edge_detection(self, low_threshold, high_threshold):
+        # Canny edge detection
+        return cv2.Canny(self.gray_image, low_threshold, high_threshold)
+
+    def morphological_operations(self, operation, kernel_size):
+        kernel = np.ones((kernel_size, kernel_size), np.uint8)
+        if operation == 'Dilation':
+            return cv2.dilate(self.gray_image, kernel, iterations=1)
+        elif operation == 'Erosion':
+            return cv2.erode(self.gray_image, kernel, iterations=1)
+        elif operation == 'Opening':
+            return cv2.morphologyEx(self.gray_image, cv2.MORPH_OPEN, kernel)
+        elif operation == 'Closing':
+            return cv2.morphologyEx(self.gray_image, cv2.MORPH_CLOSE, kernel)
+        else:
+            return self.gray_image
 
     def generate_key_visualization(self, contours):
         areas = [cv2.contourArea(c) for c in contours]
@@ -67,11 +86,35 @@ def decrypt_message(key, ciphertext):
 
 
 @st.cache_data
-def process_image(uploaded_file, threshold_value, max_value, min_contour_area):
+def process_image(uploaded_file, threshold_value, max_value, min_contour_area,
+                  max_contour_area, edge_detection, low_threshold,
+                  high_threshold, morph_op, kernel_size, use_processed_image):
     generator = CheetahKeyGenerator(Image.open(uploaded_file))
-    binary_thresh = generator.isolate_spots(threshold_value, max_value)
+
+    processed_image = generator.gray_image
+    if edge_detection:
+        edges = generator.apply_edge_detection(low_threshold, high_threshold)
+        st.image(edges, caption='Advanced Edge Detection Applied')
+        if use_processed_image:
+            processed_image = edges
+
+    morphed_image = generator.morphological_operations(morph_op, kernel_size)
+    st.image(morphed_image, caption='Morphological Operation Applied')
+    if morph_op != 'None' and use_processed_image:
+        processed_image = morphed_image
+
+    if use_processed_image:
+        generator.gray_image = processed_image
+
+    # Update the isolate_spots and find_and_filter_contours methods to use processed_image
+    binary_thresh = generator.isolate_spots(
+        threshold_value,
+        max_value,
+    )
     contours = generator.find_and_filter_contours(binary_thresh,
-                                                  min_contour_area)
+                                                  min_contour_area,
+                                                  max_contour_area)
+
     st.subheader("Visualizing Key Generation")
     key = generator.generate_key_visualization(contours)
     return key, generator.gray_image, binary_thresh, generator.create_image_from_contours(
@@ -82,20 +125,37 @@ def main():
     st.sidebar.title('Settings')
     threshold_value = st.sidebar.slider('Binary Threshold', 0, 255, 175)
     max_value = st.sidebar.slider('Max Binary Value', 0, 255, 255)
-    min_contour_area = st.sidebar.slider('Minimum Contour Area', 0, 1000, 30)
+    min_contour_area = st.sidebar.slider('Minimum Contour Area (px)', 0, 1000,
+                                         30)
+    max_contour_area = st.sidebar.slider('Maximum Contour Area (px)',
+                                         min_contour_area, 10000, 3000)
+    edge_detection = st.sidebar.checkbox('Apply Edge Detection')
+    low_threshold = st.sidebar.slider('Low Threshold for Edge Detection', 0,
+                                      100, 50)
+    high_threshold = st.sidebar.slider('High Threshold for Edge Detection',
+                                       101, 200, 150)
+    morph_op = st.sidebar.selectbox(
+        'Morphological Operation',
+        ['None', 'Dilation', 'Erosion', 'Opening', 'Closing'])
+    kernel_size = st.sidebar.slider('Kernel Size for Morphological Operations',
+                                    1, 10, 3)
+
     uploaded_file = st.sidebar.file_uploader("Choose a cheetah image...",
                                              type=['png', 'jpg', 'jpeg'])
 
+    use_processed_image = st.sidebar.checkbox(
+        "Use Processed Image for Key Generation")
+
     st.title('Cheetah Cryptographic Key Generator')
-    st.markdown("""
-    ## Overview
-    This application generates a cryptographic key from the unique patterns of a cheetah's coat. 
-    The generated key is then used to encrypt and decrypt messages.
-    """)
+    st.markdown(
+        """ ## Overview This application generates a cryptographic key from the unique patterns of a cheetah's coat. The generated key is then used to encrypt and decrypt messages. """
+    )
 
     if uploaded_file is not None:
         key, gray_image, binary_thresh, spots_image = process_image(
-            uploaded_file, threshold_value, max_value, min_contour_area)
+            uploaded_file, threshold_value, max_value, min_contour_area,
+            max_contour_area, edge_detection, low_threshold, high_threshold,
+            morph_op, kernel_size, use_processed_image)
         st.subheader("Image Processing Steps")
         st.image(gray_image, caption='Grayscale Image')
         st.image(binary_thresh, caption='Binary Threshold Applied')

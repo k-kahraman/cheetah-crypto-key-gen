@@ -14,6 +14,7 @@ opencv-python = "^4.8.1.78"
 pycryptodome = "3.19.0"
 streamlit-ace = "0.1.1"
 matplotlib = "^3.8.2"
+crypto = "^1.4.1"
 
 [tool.pyright]
 # https://github.com/microsoft/pyright/blob/main/docs/configuration.md
